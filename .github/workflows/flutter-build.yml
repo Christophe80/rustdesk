@@ -146,6 +146,100 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Embed custom RustDesk server configuration
+        shell: pwsh
+        env:
+          RENDEZVOUS_SERVER: ${{ secrets.RENDEZVOUS_SERVER }}
+          RS_PUB_KEY: ${{ secrets.RS_PUB_KEY }}
+          RELAY_SERVER: ${{ secrets.RELAY_SERVER }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RENDEZVOUS_SERVER)) {
+            Write-Error "RENDEZVOUS_SERVER secret is missing"
+            exit 1
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RS_PUB_KEY)) {
+            Write-Error "RS_PUB_KEY secret is missing"
+            exit 1
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RELAY_SERVER)) {
+            Write-Error "RELAY_SERVER secret is missing"
+            exit 1
+          }
+
+          $configPath = "libs/hbb_common/src/config.rs"
+          if (-not (Test-Path $configPath)) {
+            Write-Error "Expected $configPath was not found after recursive checkout"
+            exit 1
+          }
+
+          $config = Get-Content $configPath -Raw
+          $originalConfig = $config
+
+          $rendezvousReplacement = 'pub const RENDEZVOUS_SERVERS: &[&str] = &["' + $env:RENDEZVOUS_SERVER + '"];'
+          $keyReplacement = 'pub const RS_PUB_KEY: &str = "' + $env:RS_PUB_KEY + '";'
+
+          $config = [regex]::Replace(
+            $config,
+            'pub const RENDEZVOUS_SERVERS:\s*&\[&str\]\s*=\s*&\[[^;]*\];',
+            $rendezvousReplacement,
+            1
+          )
+          $config = [regex]::Replace(
+            $config,
+            'pub const RS_PUB_KEY:\s*&str\s*=\s*"[^"]*";',
+            $keyReplacement,
+            1
+          )
+
+          if ($config -eq $originalConfig) {
+            Write-Error "RustDesk rendezvous/key constants were not changed; upstream source layout may have changed"
+            exit 1
+          }
+          if ($config -notmatch [regex]::Escape($rendezvousReplacement)) {
+            Write-Error "Failed to embed RENDEZVOUS_SERVER into hbb_common"
+            exit 1
+          }
+          if ($config -notmatch 'pub const RS_PUB_KEY:\s*&str\s*=') {
+            Write-Error "Failed to locate RS_PUB_KEY after patch"
+            exit 1
+          }
+
+          Set-Content -Path $configPath -Value $config -Encoding UTF8
+
+          $mediatorPath = "src/rendezvous_mediator.rs"
+          if (-not (Test-Path $mediatorPath)) {
+            Write-Error "Expected $mediatorPath was not found"
+            exit 1
+          }
+
+          $mediator = Get-Content $mediatorPath -Raw
+          $originalMediator = $mediator
+          $relayEscaped = $env:RELAY_SERVER.Replace('\\', '\\\\').Replace('"', '\\"')
+          $relayReplacement = @(
+            'let mut relay_server = Config::get_option("relay-server");'
+            'if relay_server.is_empty() {'
+            ('    relay_server = "' + $relayEscaped + '".to_owned();')
+            '}'
+          ) -join "`n"
+
+          $mediator = [regex]::Replace(
+            $mediator,
+            'let mut relay_server = Config::get_option\("relay-server"\);\s*if relay_server\.is_empty\(\) \{\s*relay_server = provided_by_rendezvous_server;\s*\}',
+            $relayReplacement.Trim(),
+            1
+          )
+
+          if ($mediator -eq $originalMediator) {
+            Write-Error "RustDesk relay fallback code was not changed; upstream source layout may have changed"
+            exit 1
+          }
+
+          Set-Content -Path $mediatorPath -Value $mediator -Encoding UTF8
+
+          Write-Host "Embedded rendezvous server: $env:RENDEZVOUS_SERVER"
+          Write-Host "Embedded relay server: $env:RELAY_SERVER"
+          Write-Host "Embedded RustDesk public key from secret"
+
       - name: Restore bridge files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -279,54 +373,6 @@ jobs:
         shell: bash
         run: echo "SODIUM_LIB_DIR=$VCPKG_ROOT/installed/${{ matrix.job.vcpkg-triplet }}/lib" >> "$GITHUB_ENV"
 
-      - name: Set custom RustDesk server and public key
-        shell: pwsh
-        env:
-          RENDEZVOUS_SERVER: ${{ secrets.RENDEZVOUS_SERVER }}
-          RS_PUB_KEY: ${{ secrets.RS_PUB_KEY }}
-          RELAY_SERVER: ${{ secrets.RELAY_SERVER }}
-        run: |
-          if (-not $env:RENDEZVOUS_SERVER) {
-            Write-Error "RENDEZVOUS_SERVER secret is missing"
-            exit 1
-          }
-          if (-not $env:RS_PUB_KEY) {
-            Write-Error "RS_PUB_KEY secret is missing"
-            exit 1
-          }
-
-          Write-Host "Using rendezvous server: $env:RENDEZVOUS_SERVER"
-          Write-Host "Using RustDesk public key from secret"
-          if ($env:RELAY_SERVER) {
-            Write-Host "Using relay server: $env:RELAY_SERVER"
-          }
-
-          $candidateFiles = Get-ChildItem -Recurse -File -Path libs -Filter config.rs
-          if ($candidateFiles.Count -eq 0) {
-            Write-Error "No config.rs found under libs; RustDesk source layout may have changed"
-            exit 1
-          }
-
-          $patched = $false
-          foreach ($f in $candidateFiles) {
-            $content = Get-Content $f.FullName -Raw
-            $original = $content
-            $content = $content -replace '(?m)^(\s*pub\s+const\s+DEFAULT_RENDEZVOUS_SERVER\s*:\s*&str\s*=\s*)"[^"]*"', ('$1"' + $env:RENDEZVOUS_SERVER + '"')
-            $content = $content -replace '(?m)^(\s*pub\s+const\s+DEFAULT_RS_PUB_KEY\s*:\s*&str\s*=\s*)"[^"]*"', ('$1"' + $env:RS_PUB_KEY + '"')
-            if ($env:RELAY_SERVER) {
-              $content = $content -replace '(?m)^(\s*pub\s+const\s+DEFAULT_RELAY_SERVER\s*:\s*&str\s*=\s*)"[^"]*"', ('$1"' + $env:RELAY_SERVER + '"')
-            }
-            if ($content -ne $original) {
-              Set-Content -Path $f.FullName -Value $content -Encoding UTF8
-              Write-Host "Patched $($f.FullName)"
-              $patched = $true
-            }
-          }
-
-          if (-not $patched) {
-            Write-Error "RustDesk default server constants were not found; refusing to build an unconfigured client"
-            exit 1
-          }
 
       - name: Build rustdesk
         run: |

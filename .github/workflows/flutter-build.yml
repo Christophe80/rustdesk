@@ -279,6 +279,55 @@ jobs:
         shell: bash
         run: echo "SODIUM_LIB_DIR=$VCPKG_ROOT/installed/${{ matrix.job.vcpkg-triplet }}/lib" >> "$GITHUB_ENV"
 
+      - name: Set custom RustDesk server and public key
+        shell: pwsh
+        env:
+          RENDEZVOUS_SERVER: ${{ secrets.RENDEZVOUS_SERVER }}
+          RS_PUB_KEY: ${{ secrets.RS_PUB_KEY }}
+          RELAY_SERVER: ${{ secrets.RELAY_SERVER }}
+        run: |
+          if (-not $env:RENDEZVOUS_SERVER) {
+            Write-Error "RENDEZVOUS_SERVER secret is missing"
+            exit 1
+          }
+          if (-not $env:RS_PUB_KEY) {
+            Write-Error "RS_PUB_KEY secret is missing"
+            exit 1
+          }
+
+          Write-Host "Using rendezvous server: $env:RENDEZVOUS_SERVER"
+          Write-Host "Using RustDesk public key from secret"
+          if ($env:RELAY_SERVER) {
+            Write-Host "Using relay server: $env:RELAY_SERVER"
+          }
+
+          $candidateFiles = Get-ChildItem -Recurse -File -Path libs -Filter config.rs
+          if ($candidateFiles.Count -eq 0) {
+            Write-Error "No config.rs found under libs; RustDesk source layout may have changed"
+            exit 1
+          }
+
+          $patched = $false
+          foreach ($f in $candidateFiles) {
+            $content = Get-Content $f.FullName -Raw
+            $original = $content
+            $content = $content -replace '(?m)^(\s*pub\s+const\s+DEFAULT_RENDEZVOUS_SERVER\s*:\s*&str\s*=\s*)"[^"]*"', ('$1"' + $env:RENDEZVOUS_SERVER + '"')
+            $content = $content -replace '(?m)^(\s*pub\s+const\s+DEFAULT_RS_PUB_KEY\s*:\s*&str\s*=\s*)"[^"]*"', ('$1"' + $env:RS_PUB_KEY + '"')
+            if ($env:RELAY_SERVER) {
+              $content = $content -replace '(?m)^(\s*pub\s+const\s+DEFAULT_RELAY_SERVER\s*:\s*&str\s*=\s*)"[^"]*"', ('$1"' + $env:RELAY_SERVER + '"')
+            }
+            if ($content -ne $original) {
+              Set-Content -Path $f.FullName -Value $content -Encoding UTF8
+              Write-Host "Patched $($f.FullName)"
+              $patched = $true
+            }
+          }
+
+          if (-not $patched) {
+            Write-Error "RustDesk default server constants were not found; refusing to build an unconfigured client"
+            exit 1
+          }
+
       - name: Build rustdesk
         run: |
           # Windows: build RustDesk

@@ -2,8 +2,8 @@ lazy_static::lazy_static! {
 pub static ref T: std::collections::HashMap<&'static str, &'static str> =
     [
         ("Status", "Status"),
-        ("Your Desktop", "Uw bureaublad"),
-        ("desk_tip", "Uw bureaublad is toegankelijk met dit ID en wachtwoord."),
+        ("Your Desktop", "Uw Computer"),
+        ("desk_tip", "Uw computer is toegankelijk met dit ID en wachtwoord."),
         ("Password", "Wachtwoord"),
         ("Ready", "Gereed"),
         ("Established", "Opgezet"),
@@ -495,7 +495,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("resolution_fit_local_tip", "Lokale resolutie aanpassen"),
         ("resolution_custom_tip", "Aangepaste resolutie"),
         ("Collapse toolbar", "Werkbalk samenvouwen"),
-        ("Accept and Elevate", "Accepteren en verhogen"),
+        ("Accept and Elevate", "Toestaan met beheerdersrechten"),
         ("accept_and_elevate_btn_tooltip", "Accepteer de verbinding en verhoog de UAC-machtigingen."),
         ("clipboard_wait_response_timeout_tip", "Time-out in afwachting van kopie-antwoord."),
         ("Incoming connection", "Inkomende verbinding"),

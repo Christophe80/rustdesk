@@ -81,29 +81,28 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
     setupServerWidget() => Flexible(
           child: Offstage(
             offstage: !(!_svcStopped.value &&
-                stateGlobal.svcStatus.value == SvcStatus.ready &&
-                _svcIsUsingPublicServer.value),
+                stateGlobal.svcStatus.value == SvcStatus.ready),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(', ', style: TextStyle(fontSize: em)),
                 Flexible(
-                  child: InkWell(
-                    onTap: onUsePublicServerGuide,
-                    child: Row(
-                      children: [
-                        Flexible(
+                  child: _svcIsUsingPublicServer.value
+                      ? InkWell(
+                          onTap: onUsePublicServerGuide,
                           child: Text(
                             translate('setup_server_tip'),
                             style: TextStyle(
-                                decoration: TextDecoration.underline,
-                                fontSize: em),
+                              decoration: TextDecoration.underline,
+                              fontSize: em,
+                            ),
                           ),
+                        )
+                      : Text(
+                          translate('digit_server_connected'),
+                          style: TextStyle(fontSize: em),
                         ),
-                      ],
-                    ),
-                  ),
-                )
+                ),
               ],
             ),
           ),

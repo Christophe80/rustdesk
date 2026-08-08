@@ -2031,6 +2031,12 @@ pub fn create_symmetric_key_msg(their_pk_b: [u8; 32]) -> (Bytes, Bytes, secretbo
 
 #[inline]
 pub fn using_public_server() -> bool {
+    let server = Config::get_rendezvous_server();
+
+    if server.starts_with("rd.digit-support.be") {
+        return false;
+    }
+
     crate::get_custom_rendezvous_server(get_option("custom-rendezvous-server")).is_empty()
 }
 
